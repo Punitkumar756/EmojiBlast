@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Candy Crush Emoji</title>
+  <style>
+    body {
+      background: #000;
+      color: white;
+      font-family: sans-serif;
+      text-align: center;
+    }
+
+    .grid {
+      width: 320px;
+      height: 320px;
+      display: flex;
+      flex-wrap: wrap;
+      margin: 10px auto;
+      border: 2px solid #555;
+      position: relative;
+    }
+
+    .square {
+      width: 40px;
+      height: 40px;
+      box-sizing: border-box;
+      border: 1px solid #333;
+      font-size: 28px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      transition: transform 0.3s, opacity 0.3s;
+      position: relative;
+      background-color: #111;
+    }
+
+    .fade {
+      animation: fadeOut 0.4s forwards;
+    }
+
+    @keyframes fadeOut {
+      to {
+        opacity: 0;
+        transform: scale(0.7);
+      }
+    }
+
+    .popup {
+      position: absolute;
+      font-size: 14px;
+      color: gold;
+      animation: rise 1s forwards;
+      pointer-events: none;
+    }
+
+    @keyframes rise {
+      0% { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(-30px); }
+    }
+
+    #score, #high-score, #moves, #timer {
+      font-size: 18px;
+      margin: 5px;
+    }
+
+    #game-over {
+      font-size: 24px;
+      color: red;
+      font-weight: bold;
+      display: none;
+    }
+
+    #invalid-move {
+      font-size: 16px;
+      color: orange;
+      margin-top: 10px;
+      height: 24px;
+    }
+
+    button {
+      padding: 10px 20px;
+      margin-top: 10px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Candy Crush Emoji</h1>
+  <div id="score">Score: 0</div>
+  <div id="high-score">Highest Score: 0</div>
+  <div id="moves">Moves Left: 20</div>
+  <div id="timer">Time Left: 60s</div>
+  <div id="invalid-move"></div>
+  <div class="grid"></div>
+  <div id="game-over">Game Over!</div>
+  <button onclick="restartGame()">🔁 Restart</button>
+
+  <audio id="swap-sound" src="https://www.soundjay.com/buttons/sounds/button-10.mp3"></audio>
+  <audio id="match-sound" src="https://www.soundjay.com/buttons/sounds/button-4.mp3"></audio>
+
+  <script>
+    const grid = document.querySelector(".grid");
+    const scoreDisplay = document.getElementById("score");
+    const highScoreDisplay = document.getElementById("high-score");
+    const movesDisplay = document.getElementById("moves");
+    const timerDisplay = document.getElementById("timer");
+    const gameOverText = document.getElementById("game-over");
+    const invalidMoveText = document.getElementById("invalid-move");
+
+    const width = 8;
+    let squares = [];
+    let score = 0;
+    let moves = 20;
+    let timeLeft = 60;
+    let gameRunning = true;
+    let highScore = localStorage.getItem("candyHighScore") || 0;
+    highScoreDisplay.textContent = "Highest Score: " + highScore;
+
+    const candyIcons = ["🍓", "🍋", "🍊", "🍏", "🫐", "🍇"];
+    const specialTypes = {
+      STRIPED_H: "🚀",
+      STRIPED_V: "🎯",
+      BOMB: "💣"
+    };
+
+    const swapSound = document.getElementById("swap-sound");
+    const matchSound = document.getElementById("match-sound");
+
+    function getRandomCandy() {
+      return candyIcons[Math.floor(Math.random() * candyIcons.length)];
+    }
+
+    function createBoard() {
+      grid.innerHTML = '';
+      squares = [];
+      for (let i = 0; i < width * width; i++) {
+        const square = document.createElement("div");
+        square.setAttribute("draggable", true);
+        square.setAttribute("id", i);
+        square.classList.add("square");
+        const emoji = getRandomCandy();
+        square.textContent = emoji;
+        square.dataset.emoji = emoji;
+        grid.appendChild(square);
+        squares.push(square);
+      }
+      enableDragging();
+    }
+
+    function enableDragging() {
+      squares.forEach(square => {
+        square.addEventListener("dragstart", dragStart);
+        square.addEventListener("dragend", dragEnd);
+        square.addEventListener("dragover", e => e.preventDefault());
+        square.addEventListener("drop", dragDrop);
+      });
+    }
+
+    let emojiDragged, emojiReplaced;
+    let squareIdDragged, squareIdReplaced;
+
+    function dragStart() {
+      if (!gameRunning) return;
+      emojiDragged = this.dataset.emoji;
+      squareIdDragged = parseInt(this.id);
+    }
+
+    function dragDrop() {
+      if (!gameRunning) return;
+      emojiReplaced = this.dataset.emoji;
+      squareIdReplaced = parseInt(this.id);
+
+      squares[squareIdDragged].textContent = emojiReplaced;
+      squares[squareIdDragged].dataset.emoji = emojiReplaced;
+
+      this.textContent = emojiDragged;
+      this.dataset.emoji = emojiDragged;
+    }
+
+    function dragEnd() {
+      const validMoves = [
+        squareIdDragged - 1,
+        squareIdDragged + 1,
+        squareIdDragged - width,
+        squareIdDragged + width,
+      ];
+
+      if (validMoves.includes(squareIdReplaced)) {
+        swapSound.play();
+        if (checkPotentialMatch()) {
+          moves--;
+          movesDisplay.textContent = "Moves Left: " + moves;
+          invalidMoveText.textContent = "";
+        } else {
+          // Revert
+          squares[squareIdDragged].textContent = emojiDragged;
+          squares[squareIdDragged].dataset.emoji = emojiDragged;
+          squares[squareIdReplaced].textContent = emojiReplaced;
+          squares[squareIdReplaced].dataset.emoji = emojiReplaced;
+          invalidMoveText.textContent = "❌ Move not allowed!";
+        }
+      } else {
+        // Invalid drag (not adjacent)
+        squares[squareIdDragged].textContent = emojiDragged;
+        squares[squareIdDragged].dataset.emoji = emojiDragged;
+        squares[squareIdReplaced].textContent = emojiReplaced;
+        squares[squareIdReplaced].dataset.emoji = emojiReplaced;
+        invalidMoveText.textContent = "";
+      }
+
+      squareIdReplaced = null;
+      checkGameOver();
+    }
+
+    function checkPotentialMatch() {
+      const temp = [];
+      checkMatches(temp, 3);
+      checkMatches(temp, 4);
+      checkMatches(temp, 5);
+      return temp.length > 0;
+    }
+
+    function checkMatches(buffer, num) {
+      for (let i = 0; i < 64; i++) {
+        const rowEnd = Math.floor(i / width) * width + width;
+        const row = Array.from({ length: num }, (_, k) => i + k);
+        if (row[row.length - 1] >= rowEnd) continue;
+        const emoji = squares[i].dataset.emoji;
+        if (emoji === "") continue;
+        if (row.every(idx => squares[idx]?.dataset.emoji === emoji)) {
+          buffer.push(...row);
+        }
+      }
+
+      for (let i = 0; i < 64 - (width * (num - 1)); i++) {
+        const col = Array.from({ length: num }, (_, k) => i + k * width);
+        const emoji = squares[i].dataset.emoji;
+        if (emoji === "") continue;
+        if (col.every(idx => squares[idx]?.dataset.emoji === emoji)) {
+          buffer.push(...col);
+        }
+      }
+    }
+
+    function checkRow(num) {
+      for (let i = 0; i < 64; i++) {
+        const rowEnd = Math.floor(i / width) * width + width;
+        const match = Array.from({ length: num }, (_, k) => i + k);
+        if (match[match.length - 1] >= rowEnd) continue;
+        const emoji = squares[i].dataset.emoji;
+        if (emoji === "") continue;
+        if (match.every(idx => squares[idx].dataset.emoji === emoji)) {
+          matchSound.play();
+          const special = num === 4 ? specialTypes.STRIPED_H :
+                         num === 5 ? specialTypes.BOMB : null;
+
+          if (special) {
+            squares[match[0]].textContent = special;
+            squares[match[0]].dataset.emoji = special;
+            for (let j = 1; j < match.length; j++) clearSquare(match[j]);
+            score += num + 7;
+            showPopup(match[0], "+" + (num + 7));
+          } else {
+            match.forEach(clearSquare);
+            score += num;
+            showPopup(i, "+" + num);
+          }
+        }
+      }
+    }
+
+    function checkColumn(num) {
+      for (let i = 0; i < 64 - (width * (num - 1)); i++) {
+        const match = Array.from({ length: num }, (_, k) => i + k * width);
+        const emoji = squares[i].dataset.emoji;
+        if (emoji === "") continue;
+        if (match.every(idx => squares[idx].dataset.emoji === emoji)) {
+          matchSound.play();
+          const special = num === 4 ? specialTypes.STRIPED_V :
+                         num === 5 ? specialTypes.BOMB : null;
+
+          if (special) {
+            squares[match[0]].textContent = special;
+            squares[match[0]].dataset.emoji = special;
+            for (let j = 1; j < match.length; j++) clearSquare(match[j]);
+            score += num + 7;
+            showPopup(match[0], "+" + (num + 7));
+          } else {
+            match.forEach(clearSquare);
+            score += num;
+            showPopup(i, "+" + num);
+          }
+        }
+      }
+    }
+
+    function clearSquare(index) {
+      squares[index].classList.add("fade");
+      setTimeout(() => {
+        squares[index].textContent = "";
+        squares[index].dataset.emoji = "";
+        squares[index].classList.remove("fade");
+      }, 300);
+    }
+
+    function moveDown() {
+      for (let i = 0; i < 56; i++) {
+        if (squares[i + width].dataset.emoji === "") {
+          squares[i + width].textContent = squares[i].textContent;
+          squares[i + width].dataset.emoji = squares[i].dataset.emoji;
+          squares[i].textContent = "";
+          squares[i].dataset.emoji = "";
+        }
+      }
+
+      for (let i = 0; i < width; i++) {
+        if (squares[i].dataset.emoji === "") {
+          const emoji = getRandomCandy();
+          squares[i].textContent = emoji;
+          squares[i].dataset.emoji = emoji;
+        }
+      }
+    }
+
+    function activateSpecials() {
+      for (let i = 0; i < squares.length; i++) {
+        const emoji = squares[i].dataset.emoji;
+        if (emoji === specialTypes.STRIPED_H) {
+          const rowStart = Math.floor(i / width) * width;
+          for (let j = rowStart; j < rowStart + width; j++) clearSquare(j);
+          score += 10;
+          showPopup(i, "+10");
+          clearSquare(i);
+        } else if (emoji === specialTypes.STRIPED_V) {
+          const col = i % width;
+          for (let j = col; j < 64; j += width) clearSquare(j);
+          score += 10;
+          showPopup(i, "+10");
+          clearSquare(i);
+        } else if (emoji === specialTypes.BOMB) {
+          const area = getSurroundingIndices(i);
+          area.forEach(clearSquare);
+          score += 15;
+          showPopup(i, "+15");
+          clearSquare(i);
+        }
+      }
+    }
+
+    function getSurroundingIndices(center) {
+      const indices = [];
+      const r = Math.floor(center / width);
+      const c = center % width;
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          const nr = r + dr;
+          const nc = c + dc;
+          if (nr >= 0 && nr < width && nc >= 0 && nc < width) {
+            indices.push(nr * width + nc);
+          }
+        }
+      }
+      return indices;
+    }
+
+    function showPopup(index, text) {
+      const popup = document.createElement("div");
+      popup.className = "popup";
+      popup.innerText = text;
+      squares[index].appendChild(popup);
+      setTimeout(() => popup.remove(), 1000);
+    }
+
+    function gameLoop() {
+      if (!gameRunning) return;
+      checkRow(5); checkColumn(5);
+      checkRow(4); checkColumn(4);
+      checkRow(3); checkColumn(3);
+      activateSpecials();
+      moveDown();
+      scoreDisplay.textContent = "Score: " + score;
+    }
+
+    function startTimer() {
+      const timer = setInterval(() => {
+        if (timeLeft > 0 && gameRunning) {
+          timeLeft--;
+          timerDisplay.textContent = "Time Left: " + timeLeft + "s";
+        } else {
+          clearInterval(timer);
+          checkGameOver();
+        }
+      }, 1000);
+    }
+
+    function checkGameOver() {
+      if (moves <= 0 || timeLeft <= 0) {
+        gameRunning = false;
+        gameOverText.style.display = "block";
+        if (score > highScore) {
+          highScore = score;
+          localStorage.setItem("candyHighScore", highScore);
+          highScoreDisplay.textContent = "Highest Score: " + highScore;
+        }
+      }
+    }
+
+    function restartGame() {
+      score = 0;
+      moves = 20;
+      timeLeft = 60;
+      gameRunning = true;
+      gameOverText.style.display = "none";
+      invalidMoveText.textContent = "";
+      scoreDisplay.textContent = "Score: 0";
+      movesDisplay.textContent = "Moves Left: 20";
+      timerDisplay.textContent = "Time Left: 60s";
+      highScoreDisplay.textContent = "Highest Score: " + highScore;
+      createBoard();
+      startTimer();
+    }
+
+    createBoard();
+    startTimer();
+    setInterval(gameLoop, 150);
+  </script>
+</body>
+</html>
